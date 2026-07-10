@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>そらまる字幕 v0.1 — リアルタイム配信字幕</title>
+<title>そらまる字幕 v0.1.1 — リアルタイム配信字幕</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;800&family=Noto+Sans+JP:wght@500;700;900&display=swap" rel="stylesheet">
@@ -171,7 +171,7 @@
   <div id="ui">
     <div id="bar" class="card">
       <span class="dot" id="dot"></span>
-      <span class="brand">☁ そらまる字幕 <small>v0.1</small></span>
+      <span class="brand">☁ そらまる字幕 <small>v0.1.1</small></span>
       <button id="toggleBtn">▶ 開始</button>
       <button id="settingsBtn" class="ghost">⚙ 設定</button>
       <button id="hideBtn" class="ghost">UIを隠す (H)</button>
@@ -251,6 +251,9 @@ const st = { running:false, maxLines:2, clearSec:8, lines:[] };
 
 /* ---------- 通知 ---------- */
 function toast(text, kind, ms){
+  const last = toastBox.lastElementChild;
+  if(last && last.textContent === text) return;            /* 同じ通知の連投を防ぐ */
+  while(toastBox.children.length >= 4) toastBox.firstElementChild.remove();
   const d = document.createElement('div');
   d.className = 'msg' + (kind === 'warn' ? ' warn' : kind === 'err' ? ' err' : '');
   d.textContent = text;
@@ -299,7 +302,7 @@ function clearAll(){
 
 /* ---------- 音声認識（Web Speech API / ja-JP） ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec = null, restartT = null;
+let rec = null, restartT = null, netErrs = 0;
 
 function buildRec(){
   rec = new SR();
@@ -309,6 +312,7 @@ function buildRec(){
   rec.maxAlternatives = 1;
 
   rec.onresult = e => {
+    netErrs = 0;
     let interim = '';
     for(let i = e.resultIndex; i < e.results.length; i++){
       const r = e.results[i];
@@ -335,7 +339,13 @@ function buildRec(){
       st.running = false; render();
       toast('マイクが許可されていません。アドレスバー左のアイコンからマイクを「許可」にしてください。file:// で開いている場合は、ローカルサーバーか GitHub Pages（https）から開くと許可ダイアログが出ます。', 'err', 12000);
     }else if(e.error === 'network'){
-      toast('ネットワークエラー：音声認識はオンライン処理のため、接続を確認してください。', 'warn');
+      netErrs++;
+      if(netErrs >= 3){
+        stop();
+        toast('接続エラーが続いたため停止しました。Brave や Vivaldi などChromium派生ブラウザでは音声認識サービスに接続できません。このURLを Google Chrome か Microsoft Edge で開き直してください（Chromeでも出る場合は回線・VPNを確認）。', 'err', 0);
+      }else{
+        toast('ネットワークエラー：音声認識はオンライン処理のため、接続を確認してください。', 'warn');
+      }
     }else if(e.error === 'audio-capture'){
       st.running = false; render();
       toast('マイクが見つかりません。入力デバイスを確認してください。', 'err');
@@ -439,6 +449,11 @@ if(!SR){
   $('#toggleBtn').disabled = true;
   toast('このブラウザは音声認識APIに未対応です。Chrome または Edge で開いてください。', 'err', 0);
 }else{
+  if(navigator.brave && navigator.brave.isBrave){
+    navigator.brave.isBrave().then(is => {
+      if(is) toast('Brave では音声認識バックエンド（Googleのサービス）が無効のため、認識できません。このURLを Google Chrome か Microsoft Edge で開いてください。', 'err', 0);
+    });
+  }
   if(location.protocol === 'file:'){
     toast('file:// で開いています。マイク許可が出ない場合は、VS Code の Live Server・「npx serve」等のローカルサーバー、または GitHub Pages（https）から開いてください。', 'warn', 12000);
   }
