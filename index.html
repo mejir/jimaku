@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>そらまる字幕 v0.1 — リアルタイム配信字幕</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;800&family=Noto+Sans+JP:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* 字幕（設定で変更） */
+    --cap-size:44px;
+    --cap-color:#ffffff;
+    --cap-stroke:#182a4d;
+    --stroke-w:8px;
+    --cap-font:'Noto Sans JP','Hiragino Sans','Yu Gothic UI','Yu Gothic',sans-serif;
+    /* ステージ（クロマキー用） */
+    --bg:#00b140;
+    /* 操作パネル：夜空紺 × 空色 */
+    --panel:rgba(14,22,48,.94);
+    --panel-line:rgba(255,255,255,.15);
+    --ink:#eaf2ff;
+    --sub:#9fb4d8;
+    --accent:#7fd1f5;
+    --warm:#ffc24d;
+    --danger:#ff6b7a;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--bg);overflow:hidden;
+    font-family:'M PLUS Rounded 1c','Noto Sans JP',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ============ 字幕ステージ ============ */
+  #captions{
+    position:fixed;left:0;right:0;bottom:6vh;
+    display:flex;flex-direction:column;align-items:center;gap:.3em;
+    padding:0 4vw;pointer-events:none;user-select:none;
+  }
+  .line{
+    position:relative;z-index:0;
+    font-family:var(--cap-font);font-weight:900;
+    font-size:var(--cap-size);line-height:1.4;
+    color:var(--cap-color);text-align:center;
+    max-width:100%;overflow-wrap:anywhere;white-space:pre-wrap;
+    transition:opacity .55s ease;
+    animation:rise .26s ease;
+  }
+  /* 縁どり：同じ文字を背面に重ね、2倍幅ストロークで外側だけ見せる */
+  .line::before{
+    content:attr(data-text);
+    position:absolute;inset:0;z-index:-1;
+    color:transparent;
+    -webkit-text-stroke:calc(var(--stroke-w) * 2) var(--cap-stroke);
+    filter:drop-shadow(0 4px 14px rgba(0,0,0,.30));
+  }
+  .line.fade{opacity:0}
+  .line.interim{opacity:.75}
+  @keyframes rise{from{transform:translateY(8px);opacity:0}to{transform:translateY(0);opacity:1}}
+  @media (prefers-reduced-motion: reduce){
+    .line{animation:none;transition:none}
+  }
+
+  /* ============ 操作UI ============ */
+  #ui{
+    position:fixed;top:14px;left:14px;z-index:10;
+    display:flex;flex-direction:column;gap:10px;
+    max-width:min(430px, calc(100vw - 28px));
+    transition:opacity .22s ease, transform .22s ease;
+  }
+  body.uihidden #ui{opacity:0;pointer-events:none;transform:translateY(-8px)}
+  .card{
+    background:var(--panel);
+    border:1px solid var(--panel-line);
+    border-radius:16px;
+    box-shadow:0 12px 32px rgba(0,0,0,.38);
+    backdrop-filter:blur(8px);
+    color:var(--ink);
+  }
+  #bar{display:flex;align-items:center;gap:9px;padding:10px 12px;flex-wrap:wrap}
+  .brand{font-weight:800;font-size:14px;display:flex;align-items:center;gap:7px;margin-right:2px}
+  .brand small{color:var(--sub);font-weight:700}
+  .dot{width:9px;height:9px;border-radius:50%;background:#5a6c8f;flex:none}
+  body.listening .dot{
+    background:#39e07f;
+    box-shadow:0 0 0 0 rgba(57,224,127,.55);
+    animation:pulse 1.6s infinite;
+  }
+  @keyframes pulse{
+    70%{box-shadow:0 0 0 9px rgba(57,224,127,0)}
+    100%{box-shadow:0 0 0 0 rgba(57,224,127,0)}
+  }
+  button{font:inherit;cursor:pointer;border:0;border-radius:10px}
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  #toggleBtn{
+    padding:8px 14px;min-width:96px;font-weight:800;
+    background:linear-gradient(135deg,#59b9ff,var(--accent));color:#08213a;
+  }
+  body.listening #toggleBtn{
+    background:linear-gradient(135deg,var(--danger),#ff9f6e);color:#3a0d12;
+  }
+  #toggleBtn:hover{filter:brightness(1.08)}
+  .ghost{
+    background:transparent;border:1px solid var(--panel-line);
+    color:var(--sub);padding:8px 10px;font-weight:700;font-size:12.5px;
+  }
+  .ghost:hover{color:var(--ink)}
+
+  /* 設定パネル */
+  #settings{padding:14px;display:none}
+  body.settingsopen #settings{display:block}
+  .row{display:flex;align-items:center;gap:10px;margin:9px 0}
+  .row label{width:88px;flex:none;font-size:12.5px;font-weight:700;color:var(--sub)}
+  .row label.mini{width:auto;margin-left:6px}
+  input[type=range]{flex:1;accent-color:var(--accent);min-width:0}
+  input[type=color]{
+    width:36px;height:26px;padding:2px;background:transparent;
+    border:1px solid var(--panel-line);border-radius:8px;cursor:pointer;
+  }
+  select{
+    flex:1;font:inherit;font-size:13px;font-weight:700;
+    background:#16213f;color:var(--ink);
+    border:1px solid var(--panel-line);border-radius:8px;padding:6px 8px;
+  }
+  .val{width:46px;flex:none;text-align:right;font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;flex:1;align-items:center}
+  .chip{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:6px 10px;border-radius:999px;
+    font-size:12px;font-weight:800;
+    border:1px solid var(--panel-line);color:var(--ink);background:#16213f;
+  }
+  .chip .sw{width:10px;height:10px;border-radius:3px;flex:none}
+  .chip.on{border-color:var(--accent);background:#1b2c55}
+  .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+  .btn-s{padding:7px 11px;font-size:12.5px;font-weight:800;background:#1c2a4d;color:var(--ink);border:1px solid var(--panel-line)}
+  .btn-s:hover{filter:brightness(1.15)}
+  .hint{font-size:11.5px;color:var(--sub);margin-top:11px;line-height:1.75}
+  .hint b{color:var(--ink);font-weight:800}
+
+  /* トースト通知 */
+  #toast{
+    position:fixed;left:14px;bottom:14px;z-index:20;
+    display:flex;flex-direction:column;gap:8px;
+    max-width:min(470px, calc(100vw - 28px));
+  }
+  .msg{
+    background:var(--panel);border:1px solid var(--panel-line);
+    color:var(--ink);border-radius:12px;padding:10px 12px;
+    font-size:12.5px;line-height:1.7;
+    box-shadow:0 10px 26px rgba(0,0,0,.35);
+    animation:rise .22s ease;
+  }
+  .msg.warn{border-color:rgba(255,194,77,.5)}
+  .msg.err{border-color:rgba(255,107,122,.55)}
+</style>
+</head>
+<body>
+
+  <!-- 字幕ステージ -->
+  <div id="captions">
+    <div id="interim" class="line interim" data-text="" hidden></div>
+  </div>
+
+  <!-- 操作UI -->
+  <div id="ui">
+    <div id="bar" class="card">
+      <span class="dot" id="dot"></span>
+      <span class="brand">☁ そらまる字幕 <small>v0.1</small></span>
+      <button id="toggleBtn">▶ 開始</button>
+      <button id="settingsBtn" class="ghost">⚙ 設定</button>
+      <button id="hideBtn" class="ghost">UIを隠す (H)</button>
+    </div>
+
+    <div id="settings" class="card">
+      <div class="row">
+        <label for="size">文字サイズ</label>
+        <input type="range" id="size" min="24" max="96" value="44">
+        <span class="val" id="sizeVal"></span>
+      </div>
+      <div class="row">
+        <label for="capColor">文字色</label>
+        <input type="color" id="capColor" value="#ffffff">
+        <label class="mini" for="strokeColor">縁どり色</label>
+        <input type="color" id="strokeColor" value="#182a4d">
+      </div>
+      <div class="row">
+        <label for="strokeW">縁の太さ</label>
+        <input type="range" id="strokeW" min="0" max="14" value="8">
+        <span class="val" id="strokeWVal"></span>
+      </div>
+      <div class="row">
+        <label for="font">フォント</label>
+        <select id="font">
+          <option value="gothic">ゴシック（放送字幕風）</option>
+          <option value="maru">丸ゴシック（やわらか）</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>背景色</label>
+        <div class="chips">
+          <button class="chip on" data-bg="#00b140"><span class="sw" style="background:#00b140"></span>グリーン</button>
+          <button class="chip" data-bg="#0047ab"><span class="sw" style="background:#0047ab"></span>ブルー</button>
+          <button class="chip" data-bg="#ff00ff"><span class="sw" style="background:#ff00ff"></span>マゼンタ</button>
+          <button class="chip" data-bg="#000000"><span class="sw" style="background:#000000;border:1px solid #555"></span>黒</button>
+          <input type="color" id="bgCustom" value="#00b140" title="カスタム背景色">
+        </div>
+      </div>
+      <div class="row">
+        <label for="maxLines">表示行数</label>
+        <input type="range" id="maxLines" min="1" max="5" value="2">
+        <span class="val" id="maxLinesVal"></span>
+      </div>
+      <div class="row">
+        <label for="clearSec">自動で消す</label>
+        <input type="range" id="clearSec" min="0" max="30" value="8">
+        <span class="val" id="clearSecVal"></span>
+      </div>
+      <div class="actions">
+        <button id="testBtn" class="btn-s">テスト字幕</button>
+        <button id="clearBtn" class="btn-s">全部消す</button>
+      </div>
+      <div class="hint">
+        <b>S</b>: 開始/停止　<b>H</b>: UI表示切替<br>
+        OBSは「ウィンドウキャプチャ」でこの画面を取り込み、フィルタ→<b>クロマキー（緑）</b>で背景を抜くと字幕だけ合成できます。認識が途切れても自動で再開します。
+      </div>
+    </div>
+  </div>
+
+  <!-- 通知 -->
+  <div id="toast"></div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const captions  = $('#captions');
+const interimEl = $('#interim');
+const toastBox  = $('#toast');
+const root      = document.documentElement.style;
+
+const FONTS = {
+  gothic: "'Noto Sans JP','Hiragino Sans','Yu Gothic UI','Yu Gothic',sans-serif",
+  maru:   "'M PLUS Rounded 1c','Noto Sans JP','Hiragino Maru Gothic ProN',sans-serif"
+};
+const st = { running:false, maxLines:2, clearSec:8, lines:[] };
+
+/* ---------- 通知 ---------- */
+function toast(text, kind, ms){
+  const d = document.createElement('div');
+  d.className = 'msg' + (kind === 'warn' ? ' warn' : kind === 'err' ? ' err' : '');
+  d.textContent = text;
+  toastBox.appendChild(d);
+  if(ms !== 0){
+    setTimeout(() => {
+      d.style.transition = 'opacity .4s';
+      d.style.opacity = '0';
+      setTimeout(() => d.remove(), 450);
+    }, ms || 6000);
+  }
+}
+
+/* ---------- 字幕行の管理 ---------- */
+function setInterim(t){
+  interimEl.hidden = !t;
+  interimEl.textContent = t;
+  interimEl.setAttribute('data-text', t);
+}
+function addLine(text){
+  const el = document.createElement('div');
+  el.className = 'line';
+  el.textContent = text;
+  el.setAttribute('data-text', text);
+  captions.insertBefore(el, interimEl);
+
+  const item = { el, timer:null };
+  st.lines.push(item);
+  while(st.lines.length > st.maxLines) removeLine(st.lines[0], true);
+  if(st.clearSec > 0){
+    item.timer = setTimeout(() => removeLine(item, false), st.clearSec * 1000);
+  }
+}
+function removeLine(item, instant){
+  const i = st.lines.indexOf(item);
+  if(i > -1) st.lines.splice(i, 1);
+  clearTimeout(item.timer);
+  if(instant){ item.el.remove(); return; }
+  item.el.classList.add('fade');
+  setTimeout(() => item.el.remove(), 600);
+}
+function clearAll(){
+  st.lines.slice().forEach(x => removeLine(x, true));
+  setInterim('');
+}
+
+/* ---------- 音声認識（Web Speech API / ja-JP） ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, restartT = null;
+
+function buildRec(){
+  rec = new SR();
+  rec.lang = 'ja-JP';
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.maxAlternatives = 1;
+
+  rec.onresult = e => {
+    let interim = '';
+    for(let i = e.resultIndex; i < e.results.length; i++){
+      const r = e.results[i];
+      const t = r[0].transcript.trim();
+      if(!t) continue;
+      if(r.isFinal) addLine(t);
+      else interim += t;
+    }
+    setInterim(interim);
+  };
+
+  /* 認識セッションは勝手に終わるので、稼働中なら自動再接続 */
+  rec.onend = () => {
+    if(st.running){
+      clearTimeout(restartT);
+      restartT = setTimeout(() => { try{ rec.start(); }catch(_){ } }, 180);
+    }else{
+      render();
+    }
+  };
+
+  rec.onerror = e => {
+    if(e.error === 'not-allowed' || e.error === 'service-not-allowed'){
+      st.running = false; render();
+      toast('マイクが許可されていません。アドレスバー左のアイコンからマイクを「許可」にしてください。file:// で開いている場合は、ローカルサーバーか GitHub Pages（https）から開くと許可ダイアログが出ます。', 'err', 12000);
+    }else if(e.error === 'network'){
+      toast('ネットワークエラー：音声認識はオンライン処理のため、接続を確認してください。', 'warn');
+    }else if(e.error === 'audio-capture'){
+      st.running = false; render();
+      toast('マイクが見つかりません。入力デバイスを確認してください。', 'err');
+    }
+    /* no-speech / aborted は無視（onend の自動再開に任せる） */
+  };
+}
+function start(){
+  if(!SR) return;
+  if(!rec) buildRec();
+  try{ rec.start(); }catch(_){ /* 起動済みなら無視 */ }
+  st.running = true; render();
+}
+function stop(){
+  st.running = false;
+  clearTimeout(restartT);
+  try{ rec && rec.stop(); }catch(_){ }
+  setInterim('');
+  render();
+}
+function toggleRec(){ st.running ? stop() : start(); }
+function render(){
+  document.body.classList.toggle('listening', st.running);
+  $('#toggleBtn').textContent = st.running ? '■ 停止' : '▶ 開始';
+}
+
+/* ---------- 設定 ---------- */
+function apply(){
+  root.setProperty('--cap-size',  $('#size').value + 'px');
+  $('#sizeVal').textContent = $('#size').value + 'px';
+
+  root.setProperty('--cap-color',  $('#capColor').value);
+  root.setProperty('--cap-stroke', $('#strokeColor').value);
+
+  root.setProperty('--stroke-w', $('#strokeW').value + 'px');
+  $('#strokeWVal').textContent = $('#strokeW').value + 'px';
+
+  root.setProperty('--cap-font', FONTS[$('#font').value]);
+
+  st.maxLines = +$('#maxLines').value;
+  $('#maxLinesVal').textContent = st.maxLines + '行';
+
+  st.clearSec = +$('#clearSec').value;
+  $('#clearSecVal').textContent = st.clearSec === 0 ? '残す' : st.clearSec + '秒';
+
+  while(st.lines.length > st.maxLines) removeLine(st.lines[0], true);
+}
+['size','capColor','strokeColor','strokeW','font','maxLines','clearSec'].forEach(id => {
+  $('#' + id).addEventListener('input', apply);
+});
+
+function setBg(c){
+  root.setProperty('--bg', c);
+  document.querySelectorAll('.chip').forEach(ch => {
+    ch.classList.toggle('on', !!ch.dataset.bg && ch.dataset.bg.toLowerCase() === c.toLowerCase());
+  });
+}
+document.querySelectorAll('.chip').forEach(ch => {
+  ch.addEventListener('click', () => {
+    setBg(ch.dataset.bg);
+    $('#bgCustom').value = ch.dataset.bg;
+  });
+});
+$('#bgCustom').addEventListener('input', e => setBg(e.target.value));
+
+/* ---------- UI操作 ---------- */
+const SAMPLES = [
+  'こんそら〜！今日はのんびり作業配信です',
+  'この字幕はテスト表示です。サイズや色は設定から変えられます',
+  '緑背景のまま、OBSのクロマキーで合成してね'
+];
+let si = 0;
+$('#testBtn').addEventListener('click', () => addLine(SAMPLES[si++ % SAMPLES.length]));
+$('#clearBtn').addEventListener('click', clearAll);
+$('#toggleBtn').addEventListener('click', toggleRec);
+$('#settingsBtn').addEventListener('click', () => document.body.classList.toggle('settingsopen'));
+
+function toggleUI(){
+  const hidden = document.body.classList.toggle('uihidden');
+  if(hidden) toast('UIを隠しました。H キーで戻ります。', null, 3000);
+}
+$('#hideBtn').addEventListener('click', toggleUI);
+
+addEventListener('keydown', e => {
+  if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  if(k === 'h') toggleUI();
+  else if(k === 's') toggleRec();
+});
+addEventListener('click', e => {
+  if(document.body.classList.contains('uihidden') && !e.target.closest('#ui')){
+    toast('H キーでUIが戻ります', null, 2200);
+  }
+});
+
+/* ---------- 起動 ---------- */
+apply();
+setBg('#00b140');
+
+if(!SR){
+  $('#toggleBtn').disabled = true;
+  toast('このブラウザは音声認識APIに未対応です。Chrome または Edge で開いてください。', 'err', 0);
+}else{
+  if(location.protocol === 'file:'){
+    toast('file:// で開いています。マイク許可が出ない場合は、VS Code の Live Server・「npx serve」等のローカルサーバー、または GitHub Pages（https）から開いてください。', 'warn', 12000);
+  }
+  toast('「▶ 開始」を押すとマイク許可ダイアログが出ます。許可後、話した内容がリアルタイムで字幕になります。', null, 9000);
+}
+</script>
+</body>
+</html>
