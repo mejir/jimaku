@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>そらまる字幕 v0.1.1 — リアルタイム配信字幕</title>
+<title>そらまる字幕 v1.2.0 — リアルタイム配信字幕</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;800&family=Noto+Sans+JP:wght@500;700;900&display=swap" rel="stylesheet">
@@ -69,7 +69,8 @@
   #ui{
     position:fixed;top:14px;left:14px;z-index:10;
     display:flex;flex-direction:column;gap:10px;
-    max-width:min(430px, calc(100vw - 28px));
+    max-width:min(460px, calc(100vw - 28px));
+    max-height:calc(100vh - 28px);
     transition:opacity .22s ease, transform .22s ease;
   }
   body.uihidden #ui{opacity:0;pointer-events:none;transform:translateY(-8px)}
@@ -112,7 +113,7 @@
   .ghost:hover{color:var(--ink)}
 
   /* 設定パネル */
-  #settings{padding:14px;display:none}
+  #settings{padding:14px;display:none;overflow-y:auto}
   body.settingsopen #settings{display:block}
   .row{display:flex;align-items:center;gap:10px;margin:9px 0}
   .row label{width:88px;flex:none;font-size:12.5px;font-weight:700;color:var(--sub)}
@@ -122,11 +123,19 @@
     width:36px;height:26px;padding:2px;background:transparent;
     border:1px solid var(--panel-line);border-radius:8px;cursor:pointer;
   }
+  input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;margin:0}
   select{
     flex:1;font:inherit;font-size:13px;font-weight:700;
     background:#16213f;color:var(--ink);
     border:1px solid var(--panel-line);border-radius:8px;padding:6px 8px;
   }
+  textarea{
+    flex:1;font-family:'Noto Sans JP',sans-serif;font-size:12.5px;font-weight:500;
+    background:#16213f;color:var(--ink);resize:vertical;min-height:64px;
+    border:1px solid var(--panel-line);border-radius:8px;padding:7px 9px;
+    line-height:1.7;
+  }
+  textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
   .val{width:46px;flex:none;text-align:right;font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums}
   .chips{display:flex;gap:6px;flex-wrap:wrap;flex:1;align-items:center}
   .chip{
@@ -134,10 +143,13 @@
     padding:6px 10px;border-radius:999px;
     font-size:12px;font-weight:800;
     border:1px solid var(--panel-line);color:var(--ink);background:#16213f;
+    cursor:pointer;
   }
   .chip .sw{width:10px;height:10px;border-radius:3px;flex:none}
   .chip.on{border-color:var(--accent);background:#1b2c55}
-  .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+  .sep{border:0;border-top:1px solid var(--panel-line);margin:12px 0 4px}
+  .sec{font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--accent);margin:10px 0 2px}
+  .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px;flex-wrap:wrap}
   .btn-s{padding:7px 11px;font-size:12.5px;font-weight:800;background:#1c2a4d;color:var(--ink);border:1px solid var(--panel-line)}
   .btn-s:hover{filter:brightness(1.15)}
   .hint{font-size:11.5px;color:var(--sub);margin-top:11px;line-height:1.75}
@@ -158,6 +170,8 @@
   }
   .msg.warn{border-color:rgba(255,194,77,.5)}
   .msg.err{border-color:rgba(255,107,122,.55)}
+  /* UIを隠している間は通知も映り込まないよう非表示にする */
+  body.uihidden #toast{display:none}
 </style>
 </head>
 <body>
@@ -171,13 +185,14 @@
   <div id="ui">
     <div id="bar" class="card">
       <span class="dot" id="dot"></span>
-      <span class="brand">☁ そらまる字幕 <small>v0.1.1</small></span>
+      <span class="brand">☁ そらまる字幕 <small>v1.2.0</small></span>
       <button id="toggleBtn">▶ 開始</button>
       <button id="settingsBtn" class="ghost">⚙ 設定</button>
       <button id="hideBtn" class="ghost">UIを隠す (H)</button>
     </div>
 
     <div id="settings" class="card">
+      <div class="sec">みため</div>
       <div class="row">
         <label for="size">文字サイズ</label>
         <input type="range" id="size" min="24" max="96" value="44">
@@ -221,13 +236,45 @@
         <input type="range" id="clearSec" min="0" max="30" value="8">
         <span class="val" id="clearSecVal"></span>
       </div>
+
+      <hr class="sep">
+      <div class="sec">認識精度</div>
+      <div class="row">
+        <label for="lang">認識言語</label>
+        <select id="lang">
+          <option value="ja-JP">日本語</option>
+          <option value="en-US">英語（US）</option>
+          <option value="en-GB">英語（UK）</option>
+          <option value="ko-KR">韓国語</option>
+          <option value="zh-CN">中国語（簡体）</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>自動補正</label>
+        <div class="chips">
+          <label class="chip"><input type="checkbox" id="filler" checked>フィラー除去（えー・あのー）</label>
+          <label class="chip"><input type="checkbox" id="punct" checked>文末に「。」</label>
+        </div>
+      </div>
+      <div class="row">
+        <label for="splitLen">長文を分割</label>
+        <input type="range" id="splitLen" min="0" max="60" step="5" value="0">
+        <span class="val" id="splitLenVal"></span>
+      </div>
+      <div class="row" style="align-items:flex-start">
+        <label for="dict" style="margin-top:7px">置換辞書</label>
+        <textarea id="dict" rows="4" spellcheck="false" placeholder="誤認識→正しい表記（1行1件）&#10;例）&#10;空丸→そらまる&#10;凍死あ→トーシア"></textarea>
+      </div>
+
       <div class="actions">
         <button id="testBtn" class="btn-s">テスト字幕</button>
+        <button id="logBtn" class="btn-s">ログ保存</button>
         <button id="clearBtn" class="btn-s">全部消す</button>
       </div>
       <div class="hint">
-        <b>S</b>: 開始/停止　<b>H</b>: UI表示切替<br>
-        OBSは「ウィンドウキャプチャ」でこの画面を取り込み、フィルタ→<b>クロマキー（緑）</b>で背景を抜くと字幕だけ合成できます。認識が途切れても自動で再開します。
+        <b>S</b>: 開始/停止　<b>H</b>: UI表示切替　<b>C</b>: 全部消す<br>
+        設定と辞書は自動保存されます。よくある誤認識は<b>置換辞書</b>に「誤→正」で登録すると、次から自動で直ります。<br>
+        OBSに取り込むときは、同梱の<b>「そらまる字幕を起動.bat」</b>で開くとタブやアドレスバーの無い専用ウィンドウになります。<b>H</b>キーでこのパネルと通知を隠し、「ウィンドウキャプチャ」→フィルタ→<b>クロマキー（緑）</b>で背景を抜いてください。認識が途切れても自動で再開します。
       </div>
     </div>
   </div>
@@ -247,7 +294,11 @@ const FONTS = {
   gothic: "'Noto Sans JP','Hiragino Sans','Yu Gothic UI','Yu Gothic',sans-serif",
   maru:   "'M PLUS Rounded 1c','Noto Sans JP','Hiragino Maru Gothic ProN',sans-serif"
 };
-const st = { running:false, maxLines:2, clearSec:8, lines:[] };
+const st = {
+  running:false, maxLines:2, clearSec:8, lines:[],
+  lang:'ja-JP', filler:true, punct:true, splitLen:0,
+  dictRules:[], log:[]
+};
 
 /* ---------- 通知 ---------- */
 function toast(text, kind, ms){
@@ -265,6 +316,52 @@ function toast(text, kind, ms){
       setTimeout(() => d.remove(), 450);
     }, ms || 6000);
   }
+}
+
+/* ---------- テキスト補正パイプライン ---------- */
+function removeFillers(t){
+  return t
+    .replace(/(?:えー+っ?と|ええっ?と|えっと+|あのー+|そのー+|うーんと?|んーっ?と)[、。]?/g, '')
+    .replace(/^(?:えー+|あー+|んー+|うーん)[、。]?\s*/, '')
+    .replace(/[、。]{2,}/g, m => m[0])
+    .trim();
+}
+function applyDict(t){
+  for(const [from, to] of st.dictRules){
+    t = t.split(from).join(to);
+  }
+  return t;
+}
+/* 確定テキスト用：フィラー除去 → 辞書置換 → 句点付与 */
+function refine(t, isFinal){
+  t = t.trim();
+  if(st.filler) t = removeFillers(t);
+  t = applyDict(t);
+  if(isFinal && st.punct && t && !/[。．、,.!?！？…〜ー」』）)]$/.test(t)) t += '。';
+  return t;
+}
+/* 長文を句読点優先で分割 */
+function splitText(t, n){
+  if(!n || t.length <= n) return [t];
+  const parts = [];
+  let buf = '';
+  for(const seg of t.split(/(?<=[、。！？!?])/)){
+    if(buf && (buf + seg).length > n){ parts.push(buf); buf = seg; }
+    else buf += seg;
+    while(buf.length > n){ parts.push(buf.slice(0, n)); buf = buf.slice(n); }
+  }
+  if(buf) parts.push(buf);
+  return parts;
+}
+function parseDict(raw){
+  const rules = [];
+  for(const line of raw.split('\n')){
+    const l = line.trim();
+    if(!l || l.startsWith('#')) continue;
+    const m = l.match(/^(.+?)(?:→|=>|＝|=|\t)(.*)$/);
+    if(m && m[1].trim()) rules.push([m[1].trim(), m[2].trim()]);
+  }
+  return rules;
 }
 
 /* ---------- 字幕行の管理 ---------- */
@@ -287,6 +384,10 @@ function addLine(text){
     item.timer = setTimeout(() => removeLine(item, false), st.clearSec * 1000);
   }
 }
+function commitFinal(text){
+  st.log.push({ t:new Date(), text });
+  for(const part of splitText(text, st.splitLen)) addLine(part);
+}
 function removeLine(item, instant){
   const i = st.lines.indexOf(item);
   if(i > -1) st.lines.splice(i, 1);
@@ -300,28 +401,62 @@ function clearAll(){
   setInterim('');
 }
 
-/* ---------- 音声認識（Web Speech API / ja-JP） ---------- */
+/* ---------- 音声認識（Web Speech API） ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let rec = null, restartT = null, netErrs = 0;
+let lastEvent = 0, sessionStart = 0, hasInterim = false;
+let lastFinal = { text:'', at:0 };
+
+/* マイクストリームを掴んだままにして、認識セッションの自動再起動のたびに
+   ブラウザが許可を聞き直すのを防ぐ（停止時に解放） */
+let micStream = null;
+async function holdMic(){
+  if(micStream || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return;
+  try{
+    micStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+  }catch(_){ /* 拒否・失敗時は SpeechRecognition 側のエラー処理に任せる */ }
+}
+function releaseMic(){
+  if(micStream){
+    micStream.getTracks().forEach(t => t.stop());
+    micStream = null;
+  }
+}
 
 function buildRec(){
   rec = new SR();
-  rec.lang = 'ja-JP';
+  rec.lang = st.lang;
   rec.continuous = true;
   rec.interimResults = true;
-  rec.maxAlternatives = 1;
+  rec.maxAlternatives = 3;               /* 複数候補から最良を選ぶ */
+
+  rec.onstart = () => { sessionStart = lastEvent = Date.now(); };
+  rec.onaudiostart = rec.onsoundstart = rec.onspeechstart = () => { lastEvent = Date.now(); };
 
   rec.onresult = e => {
     netErrs = 0;
+    lastEvent = Date.now();
     let interim = '';
     for(let i = e.resultIndex; i < e.results.length; i++){
       const r = e.results[i];
-      const t = r[0].transcript.trim();
-      if(!t) continue;
-      if(r.isFinal) addLine(t);
-      else interim += t;
+      if(r.isFinal){
+        /* confidence が最も高い候補を採用 */
+        let best = r[0];
+        for(let j = 1; j < r.length; j++){
+          if((r[j].confidence || 0) > (best.confidence || 0)) best = r[j];
+        }
+        const t = refine(best.transcript, true);
+        if(!t) continue;
+        /* まれに同じ確定結果が二重に届くので除去 */
+        if(t === lastFinal.text && Date.now() - lastFinal.at < 3000) continue;
+        lastFinal = { text:t, at:Date.now() };
+        commitFinal(t);
+      }else{
+        interim += r[0].transcript.trim();
+      }
     }
-    setInterim(interim);
+    hasInterim = !!interim;
+    setInterim(interim ? refine(interim, false) : '');
   };
 
   /* 認識セッションは勝手に終わるので、稼働中なら自動再接続 */
@@ -336,7 +471,7 @@ function buildRec(){
 
   rec.onerror = e => {
     if(e.error === 'not-allowed' || e.error === 'service-not-allowed'){
-      st.running = false; render();
+      st.running = false; releaseMic(); render();
       toast('マイクが許可されていません。アドレスバー左のアイコンからマイクを「許可」にしてください。file:// で開いている場合は、ローカルサーバーか GitHub Pages（https）から開くと許可ダイアログが出ます。', 'err', 12000);
     }else if(e.error === 'network'){
       netErrs++;
@@ -347,22 +482,40 @@ function buildRec(){
         toast('ネットワークエラー：音声認識はオンライン処理のため、接続を確認してください。', 'warn');
       }
     }else if(e.error === 'audio-capture'){
-      st.running = false; render();
+      st.running = false; releaseMic(); render();
       toast('マイクが見つかりません。入力デバイスを確認してください。', 'err');
     }
     /* no-speech / aborted は無視（onend の自動再開に任せる） */
   };
 }
-function start(){
+
+/* ウォッチドッグ：ハングアップ検知＆定期リフレッシュで長時間配信でも途切れない */
+setInterval(() => {
+  if(!st.running || !rec) return;
+  const now = Date.now();
+  if(now - lastEvent > 20000){
+    /* 20秒イベントなし＝ハングの可能性 → 強制再起動 */
+    try{ rec.abort(); }catch(_){ }
+  }else if(!hasInterim && now - sessionStart > 55000){
+    /* 長いセッションは認識品質が落ちるので、発話の切れ目でソフト再起動 */
+    try{ rec.stop(); }catch(_){ }
+  }
+}, 5000);
+
+async function start(){
   if(!SR) return;
-  if(!rec) buildRec();
+  if(!rec || rec.lang !== st.lang) buildRec();
+  await holdMic();                       /* 先に許可を取り、以後は保持し続ける */
   try{ rec.start(); }catch(_){ /* 起動済みなら無視 */ }
-  st.running = true; render();
+  st.running = true;
+  sessionStart = lastEvent = Date.now();
+  render();
 }
 function stop(){
   st.running = false;
   clearTimeout(restartT);
   try{ rec && rec.stop(); }catch(_){ }
+  releaseMic();
   setInterim('');
   render();
 }
@@ -373,6 +526,8 @@ function render(){
 }
 
 /* ---------- 設定 ---------- */
+const LS_KEY = 'jimaku-settings-v1';
+
 function apply(){
   root.setProperty('--cap-size',  $('#size').value + 'px');
   $('#sizeVal').textContent = $('#size').value + 'px';
@@ -391,25 +546,90 @@ function apply(){
   st.clearSec = +$('#clearSec').value;
   $('#clearSecVal').textContent = st.clearSec === 0 ? '残す' : st.clearSec + '秒';
 
+  st.filler = $('#filler').checked;
+  st.punct  = $('#punct').checked;
+
+  st.splitLen = +$('#splitLen').value;
+  $('#splitLenVal').textContent = st.splitLen === 0 ? 'なし' : st.splitLen + '字';
+
+  st.dictRules = parseDict($('#dict').value);
+
+  const newLang = $('#lang').value;
+  if(newLang !== st.lang){
+    st.lang = newLang;
+    if(st.running){ stop(); start(); }   /* 稼働中なら新しい言語で再起動 */
+  }
+
   while(st.lines.length > st.maxLines) removeLine(st.lines[0], true);
+  saveSettings();
 }
-['size','capColor','strokeColor','strokeW','font','maxLines','clearSec'].forEach(id => {
+
+function saveSettings(){
+  const data = {
+    size:$('#size').value, capColor:$('#capColor').value,
+    strokeColor:$('#strokeColor').value, strokeW:$('#strokeW').value,
+    font:$('#font').value, maxLines:$('#maxLines').value,
+    clearSec:$('#clearSec').value, bg:$('#bgCustom').value,
+    lang:$('#lang').value, filler:$('#filler').checked,
+    punct:$('#punct').checked, splitLen:$('#splitLen').value,
+    dict:$('#dict').value
+  };
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(data)); }catch(_){ }
+}
+function loadSettings(){
+  let data;
+  try{ data = JSON.parse(localStorage.getItem(LS_KEY)); }catch(_){ }
+  if(!data) return;
+  if(data.size)        $('#size').value = data.size;
+  if(data.capColor)    $('#capColor').value = data.capColor;
+  if(data.strokeColor) $('#strokeColor').value = data.strokeColor;
+  if(data.strokeW != null) $('#strokeW').value = data.strokeW;
+  if(data.font)        $('#font').value = data.font;
+  if(data.maxLines)    $('#maxLines').value = data.maxLines;
+  if(data.clearSec != null) $('#clearSec').value = data.clearSec;
+  if(data.lang)        $('#lang').value = data.lang;
+  if(data.filler != null) $('#filler').checked = data.filler;
+  if(data.punct  != null) $('#punct').checked  = data.punct;
+  if(data.splitLen != null) $('#splitLen').value = data.splitLen;
+  if(data.dict)        $('#dict').value = data.dict;
+  if(data.bg){ $('#bgCustom').value = data.bg; setBg(data.bg); }
+}
+
+['size','capColor','strokeColor','strokeW','font','maxLines','clearSec',
+ 'lang','filler','punct','splitLen','dict'].forEach(id => {
   $('#' + id).addEventListener('input', apply);
 });
 
 function setBg(c){
   root.setProperty('--bg', c);
-  document.querySelectorAll('.chip').forEach(ch => {
-    ch.classList.toggle('on', !!ch.dataset.bg && ch.dataset.bg.toLowerCase() === c.toLowerCase());
+  document.querySelectorAll('.chip[data-bg]').forEach(ch => {
+    ch.classList.toggle('on', ch.dataset.bg.toLowerCase() === c.toLowerCase());
   });
 }
-document.querySelectorAll('.chip').forEach(ch => {
+document.querySelectorAll('.chip[data-bg]').forEach(ch => {
   ch.addEventListener('click', () => {
     setBg(ch.dataset.bg);
     $('#bgCustom').value = ch.dataset.bg;
+    saveSettings();
   });
 });
-$('#bgCustom').addEventListener('input', e => setBg(e.target.value));
+$('#bgCustom').addEventListener('input', e => { setBg(e.target.value); saveSettings(); });
+
+/* ---------- ログ保存 ---------- */
+function pad(n){ return String(n).padStart(2, '0'); }
+$('#logBtn').addEventListener('click', () => {
+  if(st.log.length === 0){ toast('保存できる字幕ログがまだありません。', 'warn'); return; }
+  const lines = st.log.map(x =>
+    `[${pad(x.t.getHours())}:${pad(x.t.getMinutes())}:${pad(x.t.getSeconds())}] ${x.text}`);
+  const now = new Date();
+  const name = `jimaku-log-${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.txt`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type:'text/plain;charset=utf-8' }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  toast(`字幕ログを ${name} として保存しました（${st.log.length}件）。`, null, 5000);
+});
 
 /* ---------- UI操作 ---------- */
 const SAMPLES = [
@@ -424,8 +644,8 @@ $('#toggleBtn').addEventListener('click', toggleRec);
 $('#settingsBtn').addEventListener('click', () => document.body.classList.toggle('settingsopen'));
 
 function toggleUI(){
-  const hidden = document.body.classList.toggle('uihidden');
-  if(hidden) toast('UIを隠しました。H キーで戻ります。', null, 3000);
+  /* 配信への映り込み防止のため、隠している間は通知(#toast)もCSSで非表示になる */
+  document.body.classList.toggle('uihidden');
 }
 $('#hideBtn').addEventListener('click', toggleUI);
 
@@ -434,16 +654,14 @@ addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if(k === 'h') toggleUI();
   else if(k === 's') toggleRec();
-});
-addEventListener('click', e => {
-  if(document.body.classList.contains('uihidden') && !e.target.closest('#ui')){
-    toast('H キーでUIが戻ります', null, 2200);
-  }
+  else if(k === 'c') clearAll();
 });
 
 /* ---------- 起動 ---------- */
+loadSettings();
 apply();
-setBg('#00b140');
+st.lang = $('#lang').value;
+if(!localStorage.getItem(LS_KEY)) setBg('#00b140');
 
 if(!SR){
   $('#toggleBtn').disabled = true;
